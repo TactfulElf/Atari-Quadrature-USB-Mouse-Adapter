@@ -11,4 +11,4 @@ Useful Tools :
 - https://eleccelerator.com/usbdescreqparser/
 - PyWinUsb - (examples/raw_data.py to check raw HID joystick output)
 - SmallyMouse2 code source, for inspiration
-- 
+- Sold on eBay : https://www.ebay.fr/itm/314564615435
