@@ -1,0 +1,46 @@
+[Debug]
+# Enable/Disable Debug TX on DB9-3 (ch32 uart 1 = PB10) - 115200 bps
+TxViaDB9-3=0
+# Reduce verbosity if USB data repeats
+LogOnlyDelta=1
+# Reduce verbosity if HID Parser is not needed
+LogHIDParser=0
+
+[Hardware]
+# DB9 pin mode : o=open-drain, p=push-pull , order 1234/LMR
+DB9Port   =oooo/ooo
+# DB9 pin config for PS/2 output (not impl. yet)
+AltDB9_PS2=..../...
+# Max Quad signal frequency
+QuadMaxFreq=2300
+
+[Mouse]
+# Use mouse boot protocol (force->no HID parsing)
+ForceBootProto=0
+# Mouse Mode : Atari/Amiga/PS2
+Mode=Atari
+# Mouse Button mapping (0..n), left to right
+Rbutton=x..x...
+Mbutton=..x....
+Lbutton=.x..x..
+
+[Joystick]
+# Pad Mapping, usually <>^v
+PadLRUD=<>^v<>^v........
+# Hat Mapping, usually from 0 to 7, 0=up, then clockwiseHatLRUD=N,NE,E,SE,S,SW,W,NW
+# Button mapping for Directions
+ButLRUD=....<>^v
+# Fire Button to USB button mapping (x=normal,!=autofire)
+#       0123456789012345
+Fire1  =.x........!.....
+Fire2  =..x........!....
+Fire3  =x..!............
+# AutoFire Frequency
+AutoFireFreq=5
+
+[LED]
+Idle       =002000
+MouseBoot  =080008
+MouseReport=200020
+Joystick   =202000
+MassStorage=201000
