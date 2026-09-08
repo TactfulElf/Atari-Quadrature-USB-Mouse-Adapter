@@ -157,7 +157,7 @@ Header file for CH554 microcontrollers.
 #endif
 
 #ifndef USB_DEVICE_ADDR
-#define	USB_DEVICE_ADDR			0x02	/* Ĭ�ϵ�USB�豸��ַ */
+#define	USB_DEVICE_ADDR			0x02	/* default USB device address */
 #endif
 #ifndef DEFAULT_ENDP0_SIZE
 #define DEFAULT_ENDP0_SIZE      8       /* default maximum packet size for endpoint 0 */
@@ -169,15 +169,15 @@ Header file for CH554 microcontrollers.
 #define MAX_PACKET_SIZE         64      /* maximum packet size */
 #endif
 #ifndef USB_BO_CBW_SIZE
-#define USB_BO_CBW_SIZE			0x1F	/* �����CBW���ܳ��� */
-#define USB_BO_CSW_SIZE			0x0D	/* ����״̬��CSW���ܳ��� */
+#define USB_BO_CBW_SIZE			0x1F	/* total length of the CBW (command block wrapper) */
+#define USB_BO_CSW_SIZE			0x0D	/* total length of the CSW (command status wrapper) */
 #endif
 #ifndef USB_BO_CBW_SIG0
-#define USB_BO_CBW_SIG0         0x55    /* �����CBWʶ���־'USBC' */
+#define USB_BO_CBW_SIG0         0x55    /* CBW identification signature 'USBC' */
 #define USB_BO_CBW_SIG1         0x53
 #define USB_BO_CBW_SIG2         0x42
 #define USB_BO_CBW_SIG3         0x43
-#define USB_BO_CSW_SIG0         0x55    /* ����״̬��CSWʶ���־'USBS' */
+#define USB_BO_CSW_SIG0         0x55    /* CSW identification signature 'USBS' */
 #define USB_BO_CSW_SIG1         0x53
 #define USB_BO_CSW_SIG2         0x42
 #define USB_BO_CSW_SIG3         0x53

@@ -1,4 +1,4 @@
-﻿
+
 /* Debug */
 /* Provide printf subroutine and delay function */
 
@@ -28,13 +28,13 @@ void mDelaymS (uint16_t n); // Delay in mS
 *******************************************************************************/
 inline void CH554UART0Alter()
 {
-    PIN_FUNC |= bUART0_PIN_X;           //串口映射到P1.2和P1.3
+    PIN_FUNC |= bUART0_PIN_X;           // UART0 mapped to P1.2 and P1.3
 }
 
 /*******************************************************************************
 * Function Name  : mInitSTDIO()
 * Description    : CH554 serial port 0 is initialized, T1 is used as the baud rate generator of UART0 by default, T2 can also be used
-                   As a baud rate generator
+*                  As a baud rate generator
 *******************************************************************************/
 inline void	mInitSTDIO( )
 {
@@ -97,37 +97,37 @@ inline void CH554UART1Alter()
 
 /*******************************************************************************
 * Function Name  : UART1Setup()
-* Description    : CH554串口1初始化
+* Description    : CH554 UART1 initialization
 *******************************************************************************/
 inline void	UART1Setup()
 {
-    U1SM0 = 0;                          //UART1选择8位数据位
-    U1SMOD = 1;                         //快速模式
-    U1REN = 1;                          //使能接收
+    U1SM0 = 0;                          // UART1 select 8 data bits
+    U1SMOD = 1;                         // fast mode
+    U1REN = 1;                          // enable receive
     // should correct for rounding in SBAUD1 calculation 
     SBAUD1 = 256 - FREQ_SYS/16/UART1_BAUD;
 }
 
 /*******************************************************************************
 * Function Name  : CH554UART1RcvByte()
-* Description    : CH554UART1接收一个字节
+* Description    : CH554UART1 receives one byte
 * Return         : SBUF
 *******************************************************************************/
 inline uint8_t  CH554UART1RcvByte( )
 {
-    while(U1RI == 0);                   //查询接收，中断方式可不用
+    while(U1RI == 0);                   // poll receive, not needed with interrupt mode
     U1RI = 0;
     return SBUF1;
 }
 
 /*******************************************************************************
 * Function Name  : CH554UART1SendByte(uint8_t SendDat)
-* Description    : CH554UART1发送一个字节
-* Input          : uint8_t SendDat；要发送的数据
+* Description    : CH554UART1 sends one byte
+* Input          : uint8_t SendDat; the data to be sent
 *******************************************************************************/
 inline void CH554UART1SendByte(uint8_t SendDat)
 {
-        SBUF1 = SendDat;                //查询发送，中断方式可不用下面2条语句,但发送前需TI=0
+        SBUF1 = SendDat;                // poll send, the following 2 statements not needed with interrupt mode, but TI must be 0 before sending
         while(U1TI ==0);
         U1TI = 0;
 }
