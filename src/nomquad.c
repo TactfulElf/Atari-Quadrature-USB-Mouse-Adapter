@@ -326,7 +326,14 @@ again:
                 PRINT(printstr( "Disconnect\n");)
                 PWMLED(ledfsm=FSM_NODEV;)
                 qmouse_mode=0;
-				P1_DIR_PU &= 0x0F; 		// No dev -> P1.[4-7] are inputs
+                P1_DIR_PU &= 0x0F;         // No dev -> P1.[4-7] floating inputs (Hi-Z)
+#ifdef HARD_V2
+                BUTT_L=1; BUTT_R=1; BUTT_M=1;
+                P3_DIR_PU &= 0xE6;             // P3.0,P3.3,P3.4 -> Hi-Z
+#else
+                BUTT_L=1; BUTT_R=1;
+                P3_DIR_PU &= 0xFC;             // P3.0,P3.1 -> Hi-Z
+#endif
                 main_button_state=1;
             }
         }
