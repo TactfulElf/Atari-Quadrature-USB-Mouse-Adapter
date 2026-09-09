@@ -153,6 +153,36 @@ __code    uint8_t ledstatus[] ={  2,0x80,                // On
 #define PWMLED(a) {a}
 #endif
 
+#ifndef SCROLL_WHEEL
+#define SCROLL_WHEEL 0
+#endif
+
+#if SCROLL_WHEEL && !defined(HARD_V2)
+#error "SCROLL_WHEEL requires HARDWARE=2 (three-button mouse hardware) - it relies on all three button lines to signal scroll-data mode"
+#endif
+
+#if SCROLL_WHEEL
+// Scroll-wheel workaround: there is no dedicated  input, so wheel motion is
+// sent over the existing Y quadrature channel while all three  button lines are asserted.
+// This is a protocol condition, not a real 3-button click - the  driver is responsible
+// for interpreting it as scroll data rather than a button press.
+//
+// NORMAL DATA STATE (scroll_active=0): Y quadrature carries real mouse Y movement, as before.
+// SCROLL DATA STATE (scroll_active=1): Y quadrature carries wheel pulses, buttons forced pressed.
+// The two states share the single Y pulse generator (p.m.ycnt/ydelta/yval/yph), so switching
+// between them is only done once that generator is idle (p.m.ycnt==0), to avoid corrupting an
+// in-progress quadrature transaction. Data that arrives while in the "wrong" state for it is
+// queued and flushed on the next safe transition, so nothing is lost.
+__bit    scroll_active;              // 0 = NORMAL DATA STATE, 1 = SCROLL DATA STATE
+int16_t  scroll_pending;             // outstanding wheel pulses (signed) waiting for a free Y channel
+int16_t  queued_ymovement;           // real Y movement received while SCROLL DATA STATE is active
+uint8_t  saved_button_byte;          // latest real USB button state, restored after scroll-data mode
+
+#define SCROLL_PULSES_PER_NOTCH 3    // Y quadrature pulses generated per USB wheel notch (tunable)
+#define SCROLL_PULSE_RATE       150  // Y accumulator rate used while sending scroll data (tunable)
+#define SCROLL_PENDING_LIMIT    2000 // clamp so pathological scroll spam can't overflow the queue
+#endif
+
 //              P1.  4   5   6   7
 // Atari ST mouse     X1     X0     Y0     Y1     -> Tested OK
 // Amiga mouse         Y0     X0     Y1     X1     -> TBC
@@ -180,6 +210,11 @@ void Timer0_ISR(void) __interrupt (INT_NO_TMR0) __using(1) {
 
     if (qmouse_mode)
     {
+#if SCROLL_WHEEL
+     // X movement is paused (not lost) while SCROLL DATA STATE occupies the Y channel:
+     // p.m.xcnt/xdelta/xval/xph simply hold their value and resume once scroll data completes.
+     if (!scroll_active) {
+#endif
      if (p.m.xcnt) {
         p.m.xval+=p.m.xdelta;
         if (((p.m.xval>>8)&0xff)!=p.m.xph) {
@@ -213,7 +248,12 @@ void Timer0_ISR(void) __interrupt (INT_NO_TMR0) __using(1) {
           }
         }
      } else {p.m.xdelta=0;}
+#if SCROLL_WHEEL
+     }
+#endif
 
+     // Y quadrature emission below is shared by NORMAL and SCROLL data states: it just emits
+     // whatever is currently loaded into p.m.ycnt/ydelta, be that real Y movement or scroll pulses.
      if (p.m.ycnt) {
         p.m.yval+=p.m.ydelta;
         if (((p.m.yval>>8)&0xff)!=p.m.yph) {
@@ -335,6 +375,10 @@ again:
                 P3_DIR_PU &= 0xFC;             // P3.0,P3.1 -> Hi-Z
 #endif
                 main_button_state=1;
+#if SCROLL_WHEEL
+                // Disconnect always returns to a safe NORMAL DATA STATE with no stale queued data.
+                scroll_active=0; scroll_pending=0; queued_ymovement=0;
+#endif
             }
         }
         if ( FoundNewDev ){
@@ -368,6 +412,10 @@ again:
                     PWMLED(ledfsm=FSM_MOUSE;)
                     qmouse_mode=1;
                     P1_DIR_PU |= 0x0F0;         // P1.[4-7] are now push-pull outputs
+#if SCROLL_WHEEL
+                    // A (re)connected mouse always starts out in NORMAL DATA STATE.
+                    scroll_active=0; scroll_pending=0; queued_ymovement=0;
+#endif
                 }
 
                 if (ThisUsbDev.DeviceType == DEV_TYPE_JOYSTICK)
@@ -402,6 +450,74 @@ again:
         if (timer&0x80)        // 15874/128 -> ~125hz (8ms)
         {
           timer=0;
+
+#if SCROLL_WHEEL
+          // Checked every tick (not only when a fresh HID report arrives) so that the
+          // button lines are restored promptly even if the USB mouse goes idle right after a
+          // scroll gesture, instead of being left stuck in the scroll-data condition. Switching
+          // NORMAL DATA STATE <-> SCROLL DATA STATE only happens once the shared Y quadrature
+          // generator is idle (p.m.ycnt==0), so an in-progress pulse train is never corrupted.
+          EA=0;
+          if (p.m.ycnt==0)
+          {
+           if (scroll_active)
+           {
+            // Scroll-data transaction complete: restore the true button state before leaving
+            // SCROLL DATA STATE, so the lines are never left stuck.
+            BUTT_L = (saved_button_byte&1)?0:1;
+            BUTT_R = (saved_button_byte&2)?0:1;
+            BUTT_M = (saved_button_byte&4)?0:1;
+            scroll_active=0;
+           }
+
+           if (!scroll_active)
+           {
+            if (queued_ymovement!=0)
+            {
+             // Drain queued movement in <=255-pulse chunks rather than one capped batch, so a
+             // burst larger than 255 pulses is fully replayed over successive idle windows
+             // instead of the excess beyond the cap being silently dropped.
+             uint8_t negy=(queued_ymovement<0);
+             uint16_t mag=negy? -queued_ymovement : queued_ymovement;
+             mag/=p.m.sdiv;
+             if (mag>0)
+             {
+              uint8_t take=(mag>255)?255:(uint8_t)mag;
+              p.m.ycnt=take;
+              uint16_t ydel=p.m.minf+p.m.smul*p.m.ycnt;
+              if (ydel>=p.m.maxf) ydel=p.m.maxf;
+              p.m.ydelta = negy? -ydel : ydel;
+              int16_t consumed=(int16_t)take*p.m.sdiv;
+              queued_ymovement = negy? queued_ymovement+consumed : queued_ymovement-consumed;
+             }
+             else
+             {
+              // What's left is smaller than one sdiv-scaled quantum, so it can never produce
+              // a pulse (same truncation normal-mode movement already applies per report).
+              // Drop it rather than leaving a nonzero-but-unproducible residue that would
+              // block SCROLL DATA STATE from ever being entered again.
+              queued_ymovement=0;
+             }
+            }
+            else if (scroll_pending!=0)
+            {
+             uint8_t negs=(scroll_pending<0);
+             uint16_t mag=negs? -scroll_pending : scroll_pending;
+             uint8_t take=(mag>255)?255:(uint8_t)mag;
+             p.m.ycnt=take;
+             // Clamp the scroll pulse rate to this mouse's configured max speed, same as
+             // normal movement, so scroll pulses never exceed the protocol's timing envelope.
+             uint16_t rate=SCROLL_PULSE_RATE;
+             if (rate>=p.m.maxf) rate=p.m.maxf;
+             p.m.ydelta = negs? -(int16_t)rate : (int16_t)rate;
+             scroll_pending += negs? take : -take;
+             scroll_active=1;
+             BUTT_L=0; BUTT_R=0; BUTT_M=0;       // assert scroll-data condition
+            }
+           }
+          }
+          EA=1;
+#endif
 
 #ifdef HARD_V2
            ledcnt--;
@@ -453,15 +569,32 @@ again:
                         // TODO : modif depending on mouse button table...
                         i=RxBuffer[0];        // 0->Left,1->Right,2->Middle
 
+#if SCROLL_WHEEL
+                        if (i&1) main_button_state=0; else main_button_state=1;
+#else
                         if (i&1) {BUTT_L=0;main_button_state=0;} else {BUTT_L=1;main_button_state=1;}
+#endif
 
                         if ((i&1) && (ledfsm>=FSM_IDLE)) { ledfsm=FSM_MOUSE; P1_DIR_PU |= 0x0F0; }
 
+#if SCROLL_WHEEL
+                        saved_button_byte=i;   // latest real button state; restored once any
+                                                // in-flight scroll-data transaction completes
+                        if (!scroll_active)
+                        {
+                         if (i&1) BUTT_L=0; else BUTT_L=1;
+                         if (i&2) BUTT_R=0; else BUTT_R=1;
+                         if (i&4) BUTT_M=0; else BUTT_M=1;
+                        }
+                        // while scroll_active, the button lines stay forced to the asserted
+                        // scroll-data condition set when SCROLL DATA STATE was entered below
+#else
                         if (i&2) BUTT_R=0; else BUTT_R=1;
 #ifdef HARD_V2
                         if (i&4) BUTT_M=0; else BUTT_M=1;
 #else
                         if (i&4) BUTT_L=0; else BUTT_L=1;        // Stephane's request
+#endif
 #endif
                         EA=0;
                         int8_t sval;        // Temporary signed value (mouse mvt from -127 to + 127)
@@ -486,6 +619,19 @@ again:
                         sval=RxBuffer[2];
                         if (sval!=0)
                         {
+#if SCROLL_WHEEL
+                         if (scroll_active)
+                         {
+                          // Y channel is busy sending scroll data - queue real movement instead
+                          // of losing it; it is flushed once SCROLL DATA STATE completes.
+                          int16_t qy=queued_ymovement+sval;
+                          if (qy>SCROLL_PENDING_LIMIT) qy=SCROLL_PENDING_LIMIT;
+                          if (qy<-SCROLL_PENDING_LIMIT) qy=-SCROLL_PENDING_LIMIT;
+                          queued_ymovement=qy;
+                         }
+                         else
+                         {
+#endif
                          neg_mvmt=(sval<0); i=!neg_mvmt?sval:-sval;
                          i/=p.m.sdiv; prev_neg_mvmt=(p.m.ydelta<0);
                          if ( p.m.ycnt && ( neg_mvmt^prev_neg_mvmt ) ) // remaining mvt, but dir changed
@@ -498,7 +644,26 @@ again:
                          uint16_t delta=p.m.minf+p.m.smul*p.m.ycnt;
                          if (delta>=p.m.maxf) delta=p.m.maxf;
                          if (!neg_mvmt) p.m.ydelta=delta; else p.m.ydelta=-delta;
+#if SCROLL_WHEEL
+                         }
+#endif
                         }
+
+#if SCROLL_WHEEL
+                        if (len>=4)
+                        {
+                         sval=RxBuffer[3];      // wheel: signed notch delta from the HID report
+                         if (sval!=0)
+                         {
+                          // Real movement received in NORMAL DATA STATE must not be lost either:
+                          // queue scroll pulses here, they are sent once the Y channel is free.
+                          int16_t qs=scroll_pending+(int16_t)sval*SCROLL_PULSES_PER_NOTCH;
+                          if (qs>SCROLL_PENDING_LIMIT) qs=SCROLL_PENDING_LIMIT;
+                          if (qs<-SCROLL_PENDING_LIMIT) qs=-SCROLL_PENDING_LIMIT;
+                          scroll_pending=qs;
+                         }
+                        }
+#endif
 
                         EA=1;
                         PRINT({for(i=0;i!=16;i++) printx2((&p.m.xcnt)[i]); printlf();})
